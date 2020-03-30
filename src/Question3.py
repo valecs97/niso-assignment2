@@ -17,7 +17,7 @@ priorityList_counts = None
 genePool = []
 topList = None
 modifiedGen = None
-nDay = 60
+nDay = None
 
 
 def run():
@@ -28,58 +28,53 @@ def run():
     beerProduction_mean = data.beerProduction.mean()
     beerProduction_DiffMean = data.beerProduction.diff().mean()
     beerProduction_Diff_Var = (np.var(data.beerProduction.diff())) ** (1 / 2)
+    nDay = 60
 
-    print('start training')
+    genePool = createPopulation(2000, nDay, beerProduction_mean, beerProduction_DiffMean)
+
     for i in range(5):
         print(i)
         data_train = justice_data(data, data.beerProduction, nDay)
-    print('finish training')
-    plt.plot(data_train.beerProduction, color='green')
-    plt.plot(data.beerProduction, color='red')
-    plt.ylabel('simulation result of ratios')
-    plt.show()
+        selected_genes = train(data, data.beerProduction, genePool, nDay)
 
-    selected_genes = train(data, data.beerProduction, genePool, nDay)
+        topList = []
+        value = 0
+        i = 0
+        j = 0
+        while (i <= len(selected_genes)):
+            try:
+                if selected_genes[j][1] == i:
+                    value = selected_genes[i][0]
+                    j += 1
+                else:
+                    topList.append(value)
+                    print(value)
+                    i += 1
+            except IndexError:
+                break
 
-    topList = []
-    value = 0
-    i = 0
-    j = 0
-    while (i <= len(selected_genes)):
-        try:
-            if selected_genes[j][1] == i:
-                value = selected_genes[i][0]
-                j += 1
-            else:
-                topList.append(value)
-                print(value)
-                i += 1
-        except IndexError:
-            break
+        priorityList, priorityList_counts = np.unique(topList, return_counts=True)
+        modifiedGen = []
+        crossover(data.beerProduction, nDay)
+        priorityList, priorityList_counts = np.unique(topList, return_counts=True)
+        modifiedGen = []
 
-    priorityList, priorityList_counts = np.unique(topList, return_counts=True)
-    modifiedGen = []
+        modification(data.beerProduction, nDay)
+        selectedGeans = genePool[2000:len(genePool)]
 
-    crossover(data.beerProduction, nDay)
+        last_gene, error = select_the_max(data.beerProduction, nDay)
 
-    priorityList, priorityList_counts = np.unique(topList, return_counts=True)
-    modifiedGen = []
+        last_eliminated_gene = finalValueModif(data.beerProduction, nDay)
 
-    modification(data.beerProduction, nDay)
-    seçilmişGenler = genePool[2000:len(genePool)]
+        plt.plot(last_eliminated_gene, color='green')
+        plt.plot(data['beerProduction'].values[data.shape[0] - nDay:data.shape[0]], color='red')
+        plt.ylabel('simulation result of ratios')
+        plt.show()
 
-    sonGen, Hata = select_the_max(data.beerProduction, nDay)
-
-    Son_elenmiş_gen = sonDegerModifikasyon(data.beerProduction, nDay)
-    plt.plot(Son_elenmiş_gen, color='green')
-    plt.plot(data['beerProduction'].values[data.shape[0] - nDay:data.shape[0]], color='red')
-    plt.ylabel('simulation result of ratios')
-    plt.show()
-
-    target = data.beerProduction[data.shape[0] - nDay:data.shape[0]]
-    val_1 = Son_elenmiş_gen[0:nDay]
-    org_1 = mean_absolute_error(val_1, target)
-    print(org_1)
+        target = data.beerProduction[data.shape[0] - nDay:data.shape[0]]
+        val_1 = last_eliminated_gene[0:nDay]
+        org_1 = mean_absolute_error(val_1, target)
+        print(org_1)
 
 
 def justice_data(dataFrame, Series, day_range):
@@ -90,9 +85,9 @@ def justice_data(dataFrame, Series, day_range):
     return dataFrame
 
 
-def createPopulation(adet, day_range, mean, diffmean):
+def createPopulation(count, day_range, mean, diffmean):
     Population = []
-    for i in range(adet):
+    for i in range(count):
         gen = []
         for j in range(day_range * 2):
             gen.append(random.randint(int(mean - diffmean) - 1, int(mean + diffmean) + 1))
@@ -128,7 +123,7 @@ def crossover(Series, day_range):
             if batch >= batch_threshold:
                 run = False
             genePool_Selected = np.random.choice(priorityList, 4,
-                                                  p=priorityList_counts / sum(priorityList_counts))
+                                                 p=priorityList_counts / sum(priorityList_counts))
             oldGen_1_15 = np.random.choice(genePool[genePool_Selected[0] - 1], int(day_range / 2))
             oldGen_2_15 = np.random.choice(genePool[genePool_Selected[1] - 1], int(day_range / 2))
             oldGen_3_15 = np.random.choice(genePool[genePool_Selected[2] - 1], int(day_range / 2))
@@ -161,8 +156,8 @@ def mutation_gen(gen, Series):
 
 def modification(Series, day_range):
     global data, priorityList, priorityList_counts, genePool, topList, modifiedGen
-    mutated_kromozom = np.zeros(day_range * 2)
-    nonMutated_kromozom = np.zeros(day_range * 2)
+    mutated_chromosome = np.zeros(day_range * 2)
+    nonMutated_chromosome = np.zeros(day_range * 2)
     genePool = np.array(genePool)
     for i in range(data.shape[0] - day_range * 4, data.shape[0] - day_range * 2):
         priorityList, priorityList_counts = np.unique(topList, return_counts=True)
@@ -174,43 +169,43 @@ def modification(Series, day_range):
             if batch >= batch_threshold:
                 run = False
             genePool_Selected = np.random.choice(priorityList, 1,
-                                                  p=priorityList_counts / sum(priorityList_counts))
-            mutated_kromozom = mutation_gen(list(genePool[genePool_Selected[0] - 1]), Series)
-            nonMutated_kromozom = genePool[genePool_Selected[0] - 1]
-            thr_1 = mean_absolute_error(mutated_kromozom, values)
-            org_1 = mean_absolute_error(nonMutated_kromozom, values)
+                                                 p=priorityList_counts / sum(priorityList_counts))
+            mutated_chromosome = mutation_gen(list(genePool[genePool_Selected[0] - 1]), Series)
+            nonMutated_chromosome = genePool[genePool_Selected[0] - 1]
+            thr_1 = mean_absolute_error(mutated_chromosome, values)
+            org_1 = mean_absolute_error(nonMutated_chromosome, values)
             batch += 1
             if thr_1 < org_1:
                 print("Completed")
-                genePool = np.vstack((genePool[:, 0], mutated_kromozom))
+                genePool = np.vstack((genePool[:, 0], mutated_chromosome))
                 topList.append(len(genePool))
 
 
 def select_the_max(Series, day_range):
-    global seçilmişGenler
-    seçilmişGenler = list(seçilmişGenler)
-    min_mae = mean_absolute_error(seçilmişGenler[0][0:day_range], Series[data.shape[0] - day_range:data.shape[0]])
+    global selectedGeans
+    selectedGeans = list(selectedGeans)
+    min_mae = mean_absolute_error(selectedGeans[0][0:day_range], Series[data.shape[0] - day_range:data.shape[0]])
     lastGen = []
-    for gen in seçilmişGenler:
+    for gen in selectedGeans:
         if mean_absolute_error(gen[0:day_range], Series[data.shape[0] - day_range:data.shape[0]]) < min_mae:
             min_mae = mean_absolute_error(gen[0:day_range], Series[data.shape[0] - day_range:data.shape[0]])
             lastGen = gen
     return lastGen, min_mae
 
 
-def sonDegerModifikasyon(Series, day_range):
-    global sonGen
+def finalValueModif(Series, day_range):
+    global last_gene
     Last_gen = np.zeros(day_range)
     for i in range(100000):
-        mutated_kromozom = mutation_gen(list(sonGen), Series)
+        mutated_chromosome = mutation_gen(list(last_gene), Series)
         target = Series[data.shape[0] - day_range:data.shape[0]]
-        val_1 = sonGen[0:day_range]
+        val_1 = last_gene[0:day_range]
         org_1 = mean_absolute_error(val_1, target)
-        thr_1 = mean_absolute_error(mutated_kromozom[0:day_range], target)
+        thr_1 = mean_absolute_error(mutated_chromosome[0:day_range], target)
         if thr_1 < org_1:
-            if (mean_absolute_error(mutated_kromozom[0:day_range], target)) < (
+            if (mean_absolute_error(mutated_chromosome[0:day_range], target)) < (
                     mean_absolute_error(Last_gen[0:day_range], target)):
-                Last_gen = mutated_kromozom
+                Last_gen = mutated_chromosome
                 print("Completed")
 
     return Last_gen
