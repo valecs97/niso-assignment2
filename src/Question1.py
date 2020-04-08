@@ -28,7 +28,7 @@ def sqrtt(params, inp, n):
 
 
 def logg(params, inp, n):
-    return log(evaluate(params[0], inp, n), 2)
+    return log(abs(evaluate(params[0], inp, n)), 2)
 
 
 def expp(params, inp, n):
@@ -41,21 +41,23 @@ def maxx(params, inp, n):
 
 def ifleq(params, inp, n):
     if evaluate(params[0], inp, n) <= evaluate(params[1], inp, n):
-        return evaluate(params[2], inp)
-    return evaluate(params[3], inp)
+        return evaluate(params[2], inp, n)
+    return evaluate(params[3], inp, n)
 
 
 def data(params, inp, n):
-    return inp[abs(evaluate(params[0], inp, n)) % n]
+    return inp[int(abs(evaluate(params[0], inp, n))) % n]
 
 
 def diff(params, inp, n):
-    return diff([data(params[:0], inp, n), data(params[1:], inp, n)], inp, n)
+    return sub([data([params[0]], inp, n), data([params[1]], inp, n)], inp, n)
 
 
 def avg(params, inp, n):
-    k = abs(evaluate(params[0], inp, n)) % n
-    l = abs(evaluate(params[1], inp, n)) % n
+    k = int(abs(evaluate(params[0], inp, n))) % n
+    l = int(abs(evaluate(params[1], inp, n))) % n
+    if k - l == 0:
+        return 0
     sm = 0
     for t in range(min(k, l), max(k, l)):
         sm += data([t], inp, n)

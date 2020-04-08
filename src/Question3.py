@@ -1,215 +1,345 @@
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split
-from sklearn import metrics
-from scipy import stats
-from scipy import spatial
-import time
-from sklearn.metrics import mean_absolute_error
-import random
+import copy
 import math
 import time
 
-data = None
-priorityList = None
-priorityList_counts = None
-genePool = []
-topList = None
-modifiedGen = None
-nDay = None
+import numpy as np, random, operator, pandas as pd, matplotlib.pyplot as plt
+
+from src.Question13 import evaluate2
+from src.Question2 import exprFitness, exprFitness2, readData
+
+one = ['data', 'sqrt', 'log', 'exp']
+two = ['add', 'sub', 'mul', 'div', 'pow', 'max', 'diff', 'avg']
+four = ['ifleq']
 
 
-def run():
-    global data, priorityList, priorityList_counts, genePool, topList, modifiedGen, nDay
-    data = pd.read_csv('monthlyBeer.csv')
-    data.columns = ['Month', 'beerProduction']
-    data = data.bfill()
-    beerProduction_mean = data.beerProduction.mean()
-    beerProduction_DiffMean = data.beerProduction.diff().mean()
-    beerProduction_Diff_Var = (np.var(data.beerProduction.diff())) ** (1 / 2)
-    nDay = 60
+class Expression:
+    def __init__(self, expr, x, y=None, z1=None, z2=None):
+        self.expr = expr
+        self.x = x
+        self.y = y
+        self.z1 = z1
+        self.z2 = z2
 
-    genePool = createPopulation(2000, nDay, beerProduction_mean, beerProduction_DiffMean)
+    def evaluate(self, inp, n):
+        return evaluate2(self.toExpr(), inp, n)
 
-    for i in range(5):
-        print(i)
-        data_train = justice_data(data, data.beerProduction, nDay)
-        selected_genes = train(data, data.beerProduction, genePool, nDay)
+    def toExpr(self):
+        if self.expr == 'nothing':
+            return self.x
+        elif self.expr == 'data':
+            return [self.expr, self.x]
+        elif self.expr == 'sqrt' or self.expr == 'log' or self.expr == 'exp':
+            return [self.expr, self.x.toExpr()]
+        elif self.expr == 'ifleq':
+            return [self.expr, self.x.toExpr(), self.y.toExpr(), self.z1.toExpr(), self.z2.toExpr()]
+        else:
+            return [self.expr, self.x.toExpr(), self.y.toExpr()]
 
-        topList = []
-        value = 0
-        i = 0
-        j = 0
-        while (i <= len(selected_genes)):
-            try:
-                if selected_genes[j][1] == i:
-                    value = selected_genes[i][0]
-                    j += 1
+    def __str__(self):
+        if self.expr == 'nothing':
+            return str(self.x)
+        elif self.expr == 'data':
+            return '(' + self.expr + ' ' + str(self.x) + ')'
+        elif self.expr == 'sqrt' or self.expr == 'log' or self.expr == 'exp':
+            return '(' + self.expr + ' ' + str(self.x) + ')'
+        elif self.expr == 'ifleq':
+            return '(' + self.expr + ' ' + str(self.x) + ' ' + str(self.y) + ' ' + str(self.z1) + ' ' + str(self.z2)
+        else:
+            return '(' + self.expr + ' ' + str(self.x) + ' ' + str(self.y) + ')'
+
+    def findExpr(self, chromosomes):
+        current = self
+        while True:
+            if len(current) <= chromosomes + 1:
+                return current
+            if current.x is not None and len(current.x) >= chromosomes:
+                current = current.x
+            elif current.y is not None and len(current.y) >= chromosomes:
+                current = current.y
+            elif current.z1 is not None and len(current.z1) >= chromosomes:
+                current = current.z1
+            elif current.z2 is not None and len(current.z2) >= chromosomes:
+                current = current.z2
+            else:
+                return current
+
+    def __len__(self):
+        if self.z1 is not None and self.z2 is not None:
+            return len(self.x) + len(self.y) + len(self.z1) + len(self.z2) + 1
+        elif self.y is not None:
+            return len(self.x) + len(self.y) + 1
+        elif isinstance(self.x, Expression):
+            return len(self.x) + 1
+        else:
+            return 0
+
+    def __getitem__(self, item):
+        try:
+            if item == 0:
+                return self
+            elif item - 1 <= len(self.x):
+                return self.x[item - 1]
+            elif item - len(self.x) - 1 <= len(self.y):
+                return self.y[item - len(self.x) - 1]
+            elif item - len(self.x) - len(self.y) - 1 <= len(self.z1):
+                return self.z1[item - len(self.x) - len(self.y) - 1]
+            elif item - len(self.x) - len(self.y) - len(self.z1) - 1 <= len(self.z2):
+                return self.z2[item - len(self.x) - len(self.y) - len(self.z1) - 1]
+            else:
+                return None
+        except TypeError:
+            return self
+
+    def __setitem__(self, key, value):
+        expr = self.__getitem__(key)
+        if isinstance(value, Expression) and expr is not None:
+            expr.expr = value.expr
+            expr.x = value.x
+            expr.y = value.y
+            expr.z1 = value.z1
+            expr.z2 = value.z2
+
+    def __add__(self, other):
+        peak = self.duplicate()
+        current = peak
+        prev = None
+        while current.expr != 'data' and current.expr != 'nothing':
+            prev = current
+            if bool(random.getrandbits(1)):
+                current = current.x
+            elif current.y is not None:
+                current = current.y
+            else:
+                current = current.x
+        if prev is None:
+            return other.duplicate()
+        else:
+            if prev.x == current:
+                prev.x = other.duplicate()
+            else:
+                prev.y = other.duplicate()
+            return peak
+
+    def duplicate(self):
+        if self.expr == 'nothing':
+            return Expression('nothing', self.x)
+        elif self.expr == 'data':
+            return Expression(self.expr, self.x)
+        elif self.expr == 'sqrt' or self.expr == 'log' or self.expr == 'exp':
+            return Expression(self.expr, self.x.duplicate())
+        elif self.expr == 'ifleq':
+            return Expression(self.expr, self.x.duplicate(), self.y.duplicate(), self.z1.duplicate(),
+                              self.z2.duplicate())
+        else:
+            return Expression(self.expr, self.x.duplicate(), self.y.duplicate())
+
+
+class Fitness:
+    def __init__(self, expr):
+        self.expr = expr.toExpr()
+        self.fitness = 0.0
+
+    def evaluateFitness(self, x, y, n, m):
+        self.fitness = exprFitness2(self.expr, n, m, x, y)
+        return self.fitness
+
+
+class GA:
+    def __init__(self, x, y, n, m, minChro, maxChro):
+        self.x = x
+        self.y = y
+        self.n = n
+        self.m = m
+        self.minChro = minChro
+        self.maxChro = maxChro
+
+        self.simpleExpr = ['data', 'sqrt', 'log', 'exp', 'add', 'sub', 'mul', 'div', 'pow', 'max', 'diff', 'avg',
+                           'ifleq']
+
+    def createExpr(self, chromosomes):
+        chromosomes -= 1
+        choice = 0
+        if chromosomes >= 4:
+            choice = random.randint(1, 12)
+        elif chromosomes >= 2:
+            choice = random.randint(1, 11)
+        elif chromosomes >= 1:
+            choice = random.randint(1, 3)
+
+        if choice == 0:
+            if random.randint(1, 100) < 70:
+                return Expression('data', random.randint(0, self.n - 1))
+            else:
+                return Expression('nothing', random.random() * 10)
+        elif choice == 12:
+            chromoX = random.randint(2, chromosomes - 2)
+            chromoY = chromosomes - chromoX
+
+            aux = chromoX
+            chromoX = random.randint(1, chromoX - 1)
+            chromoXZ = aux - chromoX
+
+            aux = chromoY
+            chromoY = random.randint(1, chromoY - 1)
+            chromoYZ = aux - chromoY
+
+            return Expression('ifleq', self.createExpr(chromoX), self.createExpr(chromoY), self.createExpr(chromoXZ),
+                              self.createExpr(chromoYZ))
+        elif choice >= 4:
+            chromoX = random.randint(1, chromosomes - 1)
+            chromoY = chromosomes - chromoX
+            return Expression(self.simpleExpr[choice], self.createExpr(chromoX), self.createExpr(chromoY))
+        else:
+            return Expression(self.simpleExpr[choice], self.createExpr(chromosomes))
+
+    def initialPopulation(self, popSize):
+        population = []
+        for i in range(0, popSize):
+            chromosomes = random.randint(self.minChro, self.maxChro)
+            population.append(self.createExpr(chromosomes))
+        return population
+
+    def rankRoutes(self, population):
+        fitnessResults = {}
+        for i in range(0, len(population)):
+            if Fitness(population[i]).evaluateFitness(self.x, self.y, self.n, self.m) != 0:
+                fitnessResults[i] = 1 / Fitness(population[i]).evaluateFitness(self.x, self.y, self.n, self.m)
+            else:
+                fitnessResults[i] = 0
+        return sorted(fitnessResults.items(), key=operator.itemgetter(1), reverse=True)
+
+    def selection(self, popRanked, eliteSize):
+        selectionResults = []
+        df = pd.DataFrame(np.array(popRanked), columns=["Index", "Fitness"])
+        df['cum_sum'] = df.Fitness.cumsum()
+        df['cum_perc'] = 100 * df.cum_sum / df.Fitness.sum()
+
+        for i in range(0, eliteSize):
+            selectionResults.append(popRanked[i][0])
+        for i in range(0, len(popRanked) - eliteSize):
+            pick = 100 * random.random()
+            for j in range(0, len(popRanked)):
+                if pick <= df.iat[j, 3]:
+                    selectionResults.append(popRanked[j][0])
+                    break
+        return selectionResults
+
+    def matingPool(self, population, selectionResults):
+        matingpool = []
+        for i in range(0, len(selectionResults)):
+            index = selectionResults[i]
+            matingpool.append(population[index])
+        return matingpool
+
+    def breed(self, parent1, parent2):
+        childChromo = random.randint(min(len(parent1), len(parent2)), max(len(parent1), len(parent2)))
+        geneA = min(childChromo - 1, int(random.random() * len(parent1)))
+        geneB = childChromo - geneA
+
+        childP1 = parent1.findExpr(geneA)
+        childP2 = parent2.findExpr(geneB)
+
+        child = childP1 + childP2
+
+        return child
+
+    def breedPopulation(self, matingpool, eliteSize):
+        children = []
+        length = len(matingpool) - eliteSize
+        pool = random.sample(matingpool, len(matingpool))
+
+        for i in range(0, eliteSize):
+            children.append(matingpool[i])
+
+        for i in range(0, length):
+            child = self.breed(pool[i], pool[len(matingpool) - i - 1])
+            children.append(child)
+        return children
+
+    def mutate(self, individual, mutationRate):
+        for swapped in range(len(individual)):
+            if (random.random() < mutationRate):
+                swapWith = int(random.random() * len(individual))
+
+                if isinstance(individual[swapped], Expression):
+                    expr1 = individual[swapped].duplicate()
                 else:
-                    topList.append(value)
-                    print(value)
-                    i += 1
-            except IndexError:
-                break
+                    expr1 = individual[swapped]
+                if isinstance(individual[swapWith], Expression):
+                    expr2 = individual[swapWith].duplicate()
+                else:
+                    expr2 = individual[swapWith]
 
-        priorityList, priorityList_counts = np.unique(topList, return_counts=True)
-        modifiedGen = []
-        crossover(data.beerProduction, nDay)
-        priorityList, priorityList_counts = np.unique(topList, return_counts=True)
-        modifiedGen = []
+                individual[swapped] = expr2
+                individual[swapWith] = expr1
 
-        modification(data.beerProduction, nDay)
-        selectedGeans = genePool[2000:len(genePool)]
+        return individual
 
-        last_gene, error = select_the_max(data.beerProduction, nDay)
+    def mutatePopulation(self, population, mutationRate):
+        mutatedPop = []
 
-        last_eliminated_gene = finalValueModif(data.beerProduction, nDay)
+        for ind in range(0, len(population)):
+            mutatedInd = self.mutate(population[ind], mutationRate)
+            mutatedPop.append(mutatedInd)
+        return mutatedPop
 
-        plt.plot(last_eliminated_gene, color='green')
-        plt.plot(data['beerProduction'].values[data.shape[0] - nDay:data.shape[0]], color='red')
-        plt.ylabel('simulation result of ratios')
-        plt.show()
+    def nextGeneration(self, currentGen, eliteSize, mutationRate):
+        popRanked = self.rankRoutes(currentGen)
+        selectionResults = self.selection(popRanked, eliteSize)
+        matingpool = self.matingPool(currentGen, selectionResults)
+        children = self.breedPopulation(matingpool, eliteSize)
+        nextGeneration = self.mutatePopulation(children, mutationRate)
+        return nextGeneration
 
-        target = data.beerProduction[data.shape[0] - nDay:data.shape[0]]
-        val_1 = last_eliminated_gene[0:nDay]
-        org_1 = mean_absolute_error(val_1, target)
-        print(org_1)
+    def geneticAlgorithmPlot(self, popSize, eliteSize, mutationRate, seconds):
+        start = time.time()
+        time.clock()
 
+        pop = self.initialPopulation(popSize)
+        caca = self.rankRoutes(pop)
 
-def justice_data(dataFrame, Series, day_range):
-    global nDay
-    for i in range(dataFrame.shape[0] - day_range * 4):
-        values_mean = Series[dataFrame.shape[0] - day_range * 2:dataFrame.shape[0]].values.mean()
-        Series[i:i + nDay * 2] = Series[i:i + nDay * 2] + (values_mean - Series[i:i + nDay * 2].mean())
-    return dataFrame
+        minim = 1 / caca[0][1]
+        expr = str(pop[caca[0][0]])
+        gen = -1
+        i = 0
 
-
-def createPopulation(count, day_range, mean, diffmean):
-    Population = []
-    for i in range(count):
-        gen = []
-        for j in range(day_range * 2):
-            gen.append(random.randint(int(mean - diffmean) - 1, int(mean + diffmean) + 1))
-        Population.append(gen)
-    return Population
-
-
-def train(dataFrame, Series, genePool, day_range):
-    selected_genes = []
-
-    for i in range(dataFrame.shape[0] - day_range * 2):
-        values = Series[i:i + day_range * 2].values
-        min_mae = mean_absolute_error(genePool[0], values)
-        for gen in genePool:
-            mae = mean_absolute_error(gen, values)
-            if mae < min_mae:
-                min_mae = mae
-                selected_genes.append([genePool.index(gen), i])
-
-    return selected_genes
+        while time.time() - start < seconds:
+            pop = self.nextGeneration(pop, eliteSize, mutationRate)
+            caca = self.rankRoutes(pop)
+            prog = 1 / caca[0][1]
+            if prog < minim:
+                minim = prog
+                expr = str(pop[caca[0][0]])
+                gen = i
+                # print(str(i) + " " + str(minim))
+            i += 1
+        # print("Best fitness: " + str(minim))
+        # print("Best expression: " + str(expr))
+        # print("Generation: " + str(gen))
+        # print("Number of generations: " + str(i))
+        # print("Time elapsed: " + str(time.time() - start))
+        print(expr)
+        return minim
 
 
-def crossover(Series, day_range):
-    global data, priorityList, priorityList_counts, genePool, topList, modifiedGen
-    genePool = np.array(genePool)
-    for i in range(data.shape[0] - day_range * 4, data.shape[0] - day_range * 2):
-        priorityList, priorityList_counts = np.unique(topList, return_counts=True)
-        values = Series[i:i + day_range * 2].values
-        run = True
-        batch_threshold = 20
-        batch = 0
-        while (run):
-            if batch >= batch_threshold:
-                run = False
-            genePool_Selected = np.random.choice(priorityList, 4,
-                                                 p=priorityList_counts / sum(priorityList_counts))
-            oldGen_1_15 = np.random.choice(genePool[genePool_Selected[0] - 1], int(day_range / 2))
-            oldGen_2_15 = np.random.choice(genePool[genePool_Selected[1] - 1], int(day_range / 2))
-            oldGen_3_15 = np.random.choice(genePool[genePool_Selected[2] - 1], int(day_range / 2))
-            oldGen_4_15 = np.random.choice(genePool[genePool_Selected[3] - 1], int(day_range / 2))
-            modifiedGen = np.concatenate((oldGen_1_15, oldGen_2_15, oldGen_3_15, oldGen_4_15), axis=None)
-            target = mean_absolute_error(modifiedGen, values)
-            val_1 = genePool[genePool_Selected[0] - 1]
-            val_2 = genePool[genePool_Selected[1] - 1]
-            val_3 = genePool[genePool_Selected[2] - 1]
-            val_4 = genePool[genePool_Selected[3] - 1]
-            thr_1 = mean_absolute_error(val_1, values)
-            thr_2 = mean_absolute_error(val_2, values)
-            thr_3 = mean_absolute_error(val_3, values)
-            thr_4 = mean_absolute_error(val_4, values)
-            if target < thr_1 and target < thr_2 and target < thr_3 and target < thr_4:
-                print("Completed")
-                genePool = np.vstack((genePool, modifiedGen))
-                topList.append(len(genePool))
-                batch += 1
-
-
-def mutation_gen(gen, Series):
-    x = np.random.choice(gen, 10)
-    for i in range(len(gen)):
-        if gen[i] in x:
-            gen[i] = np.random.choice(Series.values)
-
-    return gen
-
-
-def modification(Series, day_range):
-    global data, priorityList, priorityList_counts, genePool, topList, modifiedGen
-    mutated_chromosome = np.zeros(day_range * 2)
-    nonMutated_chromosome = np.zeros(day_range * 2)
-    genePool = np.array(genePool)
-    for i in range(data.shape[0] - day_range * 4, data.shape[0] - day_range * 2):
-        priorityList, priorityList_counts = np.unique(topList, return_counts=True)
-        values = Series[i:i + day_range * 2].values
-        run = True
-        batch_threshold = 100
-        batch = 0
-        while (run):
-            if batch >= batch_threshold:
-                run = False
-            genePool_Selected = np.random.choice(priorityList, 1,
-                                                 p=priorityList_counts / sum(priorityList_counts))
-            mutated_chromosome = mutation_gen(list(genePool[genePool_Selected[0] - 1]), Series)
-            nonMutated_chromosome = genePool[genePool_Selected[0] - 1]
-            thr_1 = mean_absolute_error(mutated_chromosome, values)
-            org_1 = mean_absolute_error(nonMutated_chromosome, values)
-            batch += 1
-            if thr_1 < org_1:
-                print("Completed")
-                genePool = np.vstack((genePool[:, 0], mutated_chromosome))
-                topList.append(len(genePool))
-
-
-def select_the_max(Series, day_range):
-    global selectedGeans
-    selectedGeans = list(selectedGeans)
-    min_mae = mean_absolute_error(selectedGeans[0][0:day_range], Series[data.shape[0] - day_range:data.shape[0]])
-    lastGen = []
-    for gen in selectedGeans:
-        if mean_absolute_error(gen[0:day_range], Series[data.shape[0] - day_range:data.shape[0]]) < min_mae:
-            min_mae = mean_absolute_error(gen[0:day_range], Series[data.shape[0] - day_range:data.shape[0]])
-            lastGen = gen
-    return lastGen, min_mae
-
-
-def finalValueModif(Series, day_range):
-    global last_gene
-    Last_gen = np.zeros(day_range)
-    for i in range(100000):
-        mutated_chromosome = mutation_gen(list(last_gene), Series)
-        target = Series[data.shape[0] - day_range:data.shape[0]]
-        val_1 = last_gene[0:day_range]
-        org_1 = mean_absolute_error(val_1, target)
-        thr_1 = mean_absolute_error(mutated_chromosome[0:day_range], target)
-        if thr_1 < org_1:
-            if (mean_absolute_error(mutated_chromosome[0:day_range], target)) < (
-                    mean_absolute_error(Last_gen[0:day_range], target)):
-                Last_gen = mutated_chromosome
-                print("Completed")
-
-    return Last_gen
-
-
-if __name__ == '__main__':
-    run()
+# if __name__ == '__main__':
+#     x, y = readData('apple.csv')
+#     results = {}
+#     absoluteMinim = {}
+#     ga = GA(x, y, len(x[0]), len(y), 3, 10)
+#     for run in range(100):
+#         print(run)
+#         for i in range(1):
+#             # print(i)
+#             res = ga.geneticAlgorithmPlot(popSize=75, eliteSize=35, mutationRate=0.01, seconds=30)
+#             if i not in results:
+#                 results[i] = 0
+#             if i not in absoluteMinim:
+#                 absoluteMinim[i] = 9999999
+#             results[i] += res
+#             if res < absoluteMinim[i]:
+#                 absoluteMinim[i] = res
+#     for i in range(1):
+#         print(str(i) + " " + str(results[i] / 100))
+#     for i in range(1):
+#         print("Absolute minim: " + str(i) + " " + str(absoluteMinim[i]))
