@@ -1,5 +1,6 @@
 import copy
 import math
+import sys
 import time
 
 import numpy as np, random, operator, pandas as pd, matplotlib.pyplot as plt
@@ -293,7 +294,7 @@ class GA:
 
     def geneticAlgorithmPlot(self, popSize, eliteSize, mutationRate, seconds):
         start = time.time()
-        time.clock()
+        time.perf_counter()
 
         pop = self.initialPopulation(popSize)
         caca = self.rankRoutes(pop)
@@ -319,6 +320,7 @@ class GA:
         # print("Number of generations: " + str(i))
         # print("Time elapsed: " + str(time.time() - start))
         print(expr)
+        sys.stdout.flush()
         return minim
 
 

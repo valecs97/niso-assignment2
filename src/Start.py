@@ -50,14 +50,17 @@ if __name__ == '__main__':
     pass
 
 readArgs()
-expr = parse_sexp(expr)
 
 if question == 1:
+    expr = parse_sexp(expr)
     print(evaluate(expr, input_vector, dimension))
+    sys.stdout.flush()
 elif question == 2:
     x, y = readData(fil)
+    expr = parse_sexp(expr)
     res = exprFitness(expr, dimension, size, x, y)
     print(res)
+    sys.stdout.flush()
 elif question == 3:
     x, y = readData(fil)
     ga = GA(x, y, dimension, size, 3, 10)
